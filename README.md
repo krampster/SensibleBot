@@ -16,14 +16,6 @@ Make sure you've installed [Python 3.7 64 bit](https://www.python.org/ftp/python
 1. Double click on run-gui.bat.
 1. Click the "Run" button. Rocket League should open automatically!
 
-### Using Rider
-1. Install Rider. If you do not have Visual Studio installed alongside Rider, follow [this article](https://rider-support.jetbrains.com/hc/en-us/articles/207288089-Using-Rider-under-Windows-without-Visual-Studio-prerequisites) to set up Rider.
-1. Open CSharpBot\Bot.sln in Rider.
-1. In Rider, click the "Run Default" button, which should compile and run the bot. Leave it running.
-   - The first time you click it, you may be given a dialog to set up the configuration. Click the "Run" button in the dialog to continue.
-1. Double click on run-gui.bat.
-1. Click the "Run" button. Rocket League should open automatically!
-
 ## Upgrades
 
 This project uses a package manager called NuGet to keep track of the RLBot framework.
@@ -34,11 +26,6 @@ your bot will work right in the next tournament!
 1. In Visual Studio, right click on the Bot C# project and choose "Manage NuGet Packages..."
 1. Click on the "Installed" tab. You should see a package called "RLBot.Framework".
 1. If an upgrade is available, it should say so and give you the option to upgrade.
-
-### Upgrading in Rider
-1. In Rider, right click on the Bot C# project and choose "Manage NuGet Packages".
-1. In the "Installed Packages" section, click on the package called "RLBot.Framework".
-1. If the "Version" dropdown contains a higher version than what your project currently has, you can select that version and click the Upgrade button next to the dropdown to upgrade.
 
 ## Notes
 
