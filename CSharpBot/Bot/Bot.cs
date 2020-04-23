@@ -38,88 +38,96 @@ namespace Bot
             Jump
         }
 
-        public class CarState
+        public class MyCarState
         {
-            public float distanceToBall;
-            public int boost;
-            public double pitch;
-            public double roll;
-            public double yaw;
-            public Vector3 pos;
-            public Vector3 velocity;
-            public Vector3 forward;
-        }
-
-        public class MyCarState : CarState
-        {
-            public Tactic tactic;
-            //public string location;
+            public MyCarState(Player inPlayer)
+            {
+                player = inPlayer;
+            }
+            public Player player;
             public float distanceToOwnGoal;
             public float distanceToOppGoal;
-            public double angleToTarget;
-            public Vector3 target;
-            public Vector3 closestBoost;
+            //public double angleToTarget;
+            //public Vector3 closestBoost;
         };
 
         public class FieldState
         {
-            public Vector3 ballVelocity;
-            public Vector3 ballPos;
-            public Vector3 oppGoal;
-            public Vector3 ownGoal;
+            public FieldInfo field;
+            public Vector3 oppGoalLocation;
+            public Vector3 ownGoalLocation;
             public List<Vector3> boost;
         }
 
         public class GameState
         {
-            public Physics BallPhysics;
-            MyCarState MyCar;
-            CarState OtherCar;
-            FieldInfo Field;
-            BallPrediction BallPrediction;
+            public Packet packet;
+            public Physics ballPhysics;
+            public MyCarState myCar;
+            //public CarState otherCar;
+            public FieldState fieldState;
+            public BallPrediction ballPrediction;
         }
 
-        ////BotCalculations
-        //Tactic
-        //PrimaryMechanic
-        //SecondaryMechanic
-        //PrimaryTarget
-        //PrimaryAngle
-        //SecondaryTarget
-        //SecondaryAngle
-        //Controller
+        public class BotCalculations
+        {
+            public Tactic tactic;
+            public Mechanic primaryMechanic;
+            public Vector3 primaryTarget;
+            public float primaryAngle;
+            public Controller controller;
+        }
 
         public override Controller GetOutput(rlbot.flat.GameTickPacket gameTickPacket)
         {
-            // We process the gameTickPacket and convert it to our own internal data structure.
-            Packet packet = new Packet(gameTickPacket);
-            Controller result = new Controller();
+            // Convert the current frame data into our own structures and helpers.
+            GameState gameState = new GameState();
+            gameState.packet = new Packet(gameTickPacket);
+            gameState.ballPhysics = gameState.packet.Ball.Physics;
+            
+            if (gameState.packet.Players.Length == 0)
+                return new Controller();
 
-            if (packet.Players.Length == 0)
-                return result;
+            gameState.myCar = new MyCarState(gameState.packet.Players[index]);
+            gameState.fieldState = new FieldState();
+            gameState.fieldState.field = GetFieldInfo();
+
+            gameState.fieldState.ownGoalLocation = gameState.fieldState.field.Goals[gameState.myCar.player.Team].Location;
+            gameState.fieldState.oppGoalLocation = gameState.fieldState.field.Goals[Math.Abs(gameState.myCar.player.Team - 1)].Location;
+            gameState.fieldState.ownGoalLocation.Z = 0;
+            gameState.fieldState.oppGoalLocation.Z = 0;
+
+            gameState.myCar.distanceToOwnGoal = DistanceBetween(gameState.myCar.player.Physics.Location, gameState.fieldState.ownGoalLocation);
+            gameState.myCar.distanceToOppGoal = DistanceBetween(gameState.myCar.player.Physics.Location, gameState.fieldState.oppGoalLocation);
+
+            BotCalculations botCalculations = new BotCalculations
+            {
+                controller = new Controller()
+            };
+            
+            // Decide on a tactic
+
 
             // Get the data required to drive to the ball.
-            Vector3 ballActualLocation = packet.Ball.Physics.Location;
-            Vector3 carLocation = packet.Players[index].Physics.Location;
-            Orientation carRotation = packet.Players[index].Physics.Rotation;
+            Vector3 ballActualLocation = gameState.ballPhysics.Location;
+            Vector3 carLocation = gameState.myCar.player.Physics.Location;
+            Orientation carRotation = gameState.myCar.player.Physics.Rotation;
 
-            // We normally want to hit the ball on OUR side.
-            Vector3 myGoalLocation = GetFieldInfo().Goals[packet.Players[index].Team].Location;
-            Vector3 otherGoalLocation = GetFieldInfo().Goals[Math.Abs(packet.Players[index].Team - 1)].Location;
-
+            // Use prediction based on how far we are from the ball.
+            // TODO: reduce this by how far the opponent is from the ball.
             float distanceToBall = DistanceBetween(carLocation, ballActualLocation);
             BallPrediction prediction = GetBallPrediction();
             int predictionSlice = (int)distanceToBall / 25 - 1;
             predictionSlice = (int)Clamp(predictionSlice, 0, prediction.Length - 1);
             Vector3 ballLocation = prediction.Slices[predictionSlice].Physics.Location;
 
-            // How far away from the ball should we be aiming?
-            //
-            Vector3 ballEdgeLocation = ProjectLocationTowardsTarget(ballLocation, otherGoalLocation, -BallRadius * 1.25f);
+            // Target the side of the ball to shoot at their goal.
+            Vector3 ballEdgeLocation = ProjectLocationTowardsTarget(ballLocation, gameState.fieldState.oppGoalLocation, -BallRadius * 1.25f);
             distanceToBall = DistanceBetween(carLocation, ballEdgeLocation);
 
+            // How far away from the ball should we be aiming?
             float distanceToBallToAim = BallRadius + .25f * distanceToBall;
-            Vector3 targetLocation = ProjectLocationTowardsTarget(ballLocation, otherGoalLocation, -distanceToBallToAim);
+            Vector3 targetLocation = ProjectLocationTowardsTarget(ballLocation, gameState.fieldState.oppGoalLocation, -distanceToBallToAim);
 
             // Find where the ball is relative to us.
             Vector3 ballRelativeLocation = Orientation.RelativeLocation(carLocation, targetLocation, carRotation);
@@ -141,24 +149,24 @@ namespace Bot
 
             if (Math.Abs(angleToBallTarget) < 0.2f)
             {
-                result.Boost = true;
+                botCalculations.controller.Boost = true;
             }
 
             if (Math.Abs(angleToBallTarget) > 1.6f)
             {
-                result.Handbrake = true;
+                botCalculations.controller.Handbrake = true;
             }
 
             // get off the wall
             if (carRotation.Roll > .5)
             {
                 steer = 1;
-                result.Roll = -1;
+                botCalculations.controller.Roll = -1;
             }
             else if (carRotation.Roll < -.5)
             {
                 steer = -1;
-                result.Roll = 1;
+                botCalculations.controller.Roll = 1;
             }
             
 
@@ -167,12 +175,12 @@ namespace Bot
                 Math.Abs(ballRelativeLocation.Y) < 150 &&
                 ballLocation.Z > 100 && ballLocation.Z < 300)
             {
-                result.Jump = true;
+                botCalculations.controller.Jump = true;
             }
             else if (ballLocation.Z > 300)
             {
                 //patience
-                Vector3 safePosition = ProjectLocationTowardsTarget(myGoalLocation, otherGoalLocation, 500);
+                Vector3 safePosition = ProjectLocationTowardsTarget(gameState.fieldState.ownGoalLocation, gameState.fieldState.oppGoalLocation, 500);
                 float angleToSafePosition = AngleBetween(carLocation, carRotation, safePosition);
 
                 if (Math.Abs(angleToSafePosition) > Math.PI * 0.5f)
@@ -204,7 +212,7 @@ namespace Bot
             {
                 Renderer.DrawString3D(steer > 0 ? "Right" : "Left", Colors.Aqua, carLocation, 3, 3);
             }
-            if (result.Jump)
+            if (botCalculations.controller.Jump)
             {
                 Renderer.DrawString3D("Jump", Colors.Green, carLocation, 3, 3);
             }
@@ -212,9 +220,9 @@ namespace Bot
             Renderer.DrawLine3D(Colors.Red, carLocation, ballEdgeLocation);
 
             // This controller will contain all the inputs that we want the bot to perform.
-            result.Throttle = throttle;
-            result.Steer = steer;
-            return result;
+            botCalculations.controller.Throttle = throttle;
+            botCalculations.controller.Steer = steer;
+            return botCalculations.controller;
         }
 
         private bool IsPointingAtGoal(Vector3 location, Orientation orientation, int team)
