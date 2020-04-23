@@ -5,6 +5,7 @@ using Bot.Utilities.Processed.FieldInfo;
 using Bot.Utilities.Processed.Packet;
 using RLBotDotNet;
 using System;
+using System.Collections.Generic;
 
 namespace Bot
 {
@@ -36,14 +37,48 @@ namespace Bot
             Defend,
             Jump
         }
-        
-        ////GameState
-        //Ball
-        //MyCar
-        //OtherCar
-        //FieldInfo
-        //Prediction
-        
+
+        public class CarState
+        {
+            public float distanceToBall;
+            public int boost;
+            public double pitch;
+            public double roll;
+            public double yaw;
+            public Vector3 pos;
+            public Vector3 velocity;
+            public Vector3 forward;
+        }
+
+        public class MyCarState : CarState
+        {
+            public Tactic tactic;
+            //public string location;
+            public float distanceToOwnGoal;
+            public float distanceToOppGoal;
+            public double angleToTarget;
+            public Vector3 target;
+            public Vector3 closestBoost;
+        };
+
+        public class FieldState
+        {
+            public Vector3 ballVelocity;
+            public Vector3 ballPos;
+            public Vector3 oppGoal;
+            public Vector3 ownGoal;
+            public List<Vector3> boost;
+        }
+
+        public class GameState
+        {
+            public Physics BallPhysics;
+            MyCarState MyCar;
+            CarState OtherCar;
+            FieldInfo Field;
+            BallPrediction BallPrediction;
+        }
+
         ////BotCalculations
         //Tactic
         //PrimaryMechanic
