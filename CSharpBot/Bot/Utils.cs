@@ -10,6 +10,8 @@ namespace Bot
     public static class Utils
     {
         public const float BallRadius = 91.25f;
+        public const float SideWall = 4096;
+        public const float BackWall = 5120;
 
         public static float DistanceBetween(Vector3 location1, Vector3 location2)
         {
@@ -49,6 +51,14 @@ namespace Bot
         public static double getDistance2D(Vector3 pointA, Vector3 pointB)
         {
             return getDistance2D(pointA.X, pointB.X, pointA.Y, pointB.Y);
+        }
+
+        public static Vector3 ClampToField(Vector3 value)
+        {
+            Vector3 result = value;
+            result.X = Clamp(value.X, -SideWall, SideWall);
+            result.Y = Clamp(value.Y, -BackWall, BackWall);
+            return result;
         }
 
         //public double magnitude2D(Vector3 vector)
