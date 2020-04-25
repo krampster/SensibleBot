@@ -232,6 +232,51 @@ namespace Bot
         }
     }
 
+    public class Defend : Tactic
+    {
+        public Defend() : base(TacticType.Defend)
+        {
+        }
+
+        public override void DoWork(GameState gameState, BotCalculations botCalculations)
+        {
+            // Drive towards safest post.
+            Vector3 directionToBall = Vector3.Normalize(gameState.ballPhysics.Location - gameState.myCar.player.Physics.Location);
+            float YDistanceFromGoal = gameState.fieldState.ownGoalLocation.Y - gameState.myCar.player.Physics.Location.Y;
+            float distanceFactor = YDistanceFromGoal / directionToBall.Y;
+            Vector3 OwnWallIntersection = directionToBall * distanceFactor;
+            Vector3 safePosition = gameState.fieldState.ownGoalLocation;
+            if (OwnWallIntersection.X > 0)
+            {
+                safePosition.X -= Utils.GoalPostOffset;
+            }
+            else
+            {
+                safePosition.X += Utils.GoalPostOffset;
+            }
+
+            float angleToSafePosition = Utils.AngleBetween(gameState.myCar.player.Physics.Location, gameState.myCar.player.Physics.Rotation, safePosition);
+            botCalculations.primaryTarget = safePosition;
+            botCalculations.primaryAngle = angleToSafePosition;
+
+            if (Math.Abs(angleToSafePosition) < 0.2f)
+            {
+                // TODO: don't boost when unnecessary. Both for worthless hits, and lack of urgency?
+                botCalculations.controller.Boost = true;
+            }
+
+            // Turn to safe position.
+            botCalculations.controller.Throttle = 1;
+            botCalculations.controller.Steer = Utils.Clamp(angleToSafePosition * 6.0f, -1, 1);
+
+            // Fixups.
+            AirWallRecovery(gameState, botCalculations);
+
+            // Jump.
+            ContactBall(gameState, botCalculations);
+        }
+    }
+
     // We want to our bot to derive from Bot, and then implement its abstract methods.
     public class Bot : RLBotDotNet.Bot
     {
@@ -273,7 +318,13 @@ namespace Bot
 
         public Tactic ChooseTactic(GameState gameState, BotCalculations botCalculations)
         {
-            if (botCalculations.predictedBallLocation.Z > 300)
+            Vector3 meToBallDirection = Vector3.Normalize(gameState.ballPhysics.Location - gameState.myCar.player.Physics.Location);
+            Vector3 meToOwnGoalDirection = Vector3.Normalize(gameState.fieldState.ownGoalLocation - gameState.myCar.player.Physics.Location);
+            if (Vector3.Dot(meToBallDirection, meToOwnGoalDirection) > .9f)
+            {
+                return new Defend();
+            }
+            else if (botCalculations.predictedBallLocation.Z > 300)
             {
                 return new Patience();
             }

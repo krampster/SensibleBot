@@ -12,6 +12,7 @@ namespace Bot
         public const float BallRadius = 91.25f;
         public const float SideWall = 4096;
         public const float BackWall = 5120;
+        public const float GoalPostOffset = 850;
 
         public static float DistanceBetween(Vector3 location1, Vector3 location2)
         {
