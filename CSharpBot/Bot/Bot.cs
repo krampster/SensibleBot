@@ -6,6 +6,7 @@ using Bot.Utilities.Processed.Packet;
 using RLBotDotNet;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace Bot
 {
@@ -24,7 +25,8 @@ namespace Bot
         WallPlay,
         Patience,
         Defend,
-        Jump
+        Jump,
+        ForwardDodge
     }
 
     public class MyCarState
@@ -61,7 +63,7 @@ namespace Bot
         {
             // Use prediction based on how far we are from the ball.
             // TODO: reduce this by how far the opponent is from the ball.
-            float distanceToBall = Utils.DistanceBetween(myCar.player.Physics.Location, ballPhysics.Location);
+            float distanceToBall = Utils.DistanceBetween2D(myCar.player.Physics.Location, ballPhysics.Location);
             int predictionSlice = (int)distanceToBall / 25 - 1;
             predictionSlice = (int)Utils.Clamp(predictionSlice, 0, ballPrediction.Length - 1);
             Vector3 ballLocation = ballPrediction.Slices[predictionSlice].Physics.Location;
@@ -72,13 +74,55 @@ namespace Bot
     public class BotCalculations
     {
         public Tactic tactic;
-        //public Mechanic primaryMechanic;
+        public Mechanic primaryMechanic;
         public Vector3 primaryTarget;
         public float primaryAngle;
         public Vector3 predictedBallLocation;
         public Controller controller;
     }
 
+    public abstract class Mechanic
+    {
+        public abstract bool Update(ref Controller controller);
+    }
+
+    public class ForwardDodge : Mechanic
+    {
+        public Stopwatch timer = new Stopwatch();
+
+        public ForwardDodge()
+        {
+            timer.Restart();
+        }
+
+        public override bool Update(ref Controller controller)
+        {
+            if (timer.ElapsedMilliseconds <= 120)
+            {
+                controller.Jump = (timer.ElapsedMilliseconds <= 80);
+                controller.Yaw = 0;
+                controller.Pitch = 0;
+            }
+            else if (timer.ElapsedMilliseconds <= 250)
+            {
+                controller.Jump = true;
+                controller.Yaw = (float)-Math.Sin(controller.Steer);
+                controller.Pitch = (float)-Math.Cos(controller.Steer);
+            }
+            else if (timer.ElapsedMilliseconds <= 1000)
+            {
+                controller.Jump = false;
+                controller.Yaw = 0;
+                controller.Pitch = 0;
+            }
+            //if (timer.ElapsedMilliseconds <= 800) 
+            controller.Boost = false;
+
+            if (timer.ElapsedMilliseconds >= 1000)
+                return false;
+            return true;
+        }
+    }
 
     public abstract class Tactic
     {
@@ -119,6 +163,21 @@ namespace Bot
             {
                 botCalculations.controller.Steer = -1;
                 botCalculations.controller.Roll = 1;
+            }
+            if (!gamestate.myCar.player.HasWheelContact)
+            {
+                if (gamestate.myCar.player.Physics.Rotation.Pitch > .5)
+                {
+                    botCalculations.controller.Pitch = -1;
+                }
+                else if (gamestate.myCar.player.Physics.Rotation.Pitch < -.5)
+                {
+                    botCalculations.controller.Pitch = 1;
+                }
+
+                float angle = Utils.AngleBetween(Vector3.Zero, gamestate.myCar.player.Physics.Rotation, gamestate.myCar.player.Physics.Velocity);
+                angle = Utils.Clamp(angle, -1, 1);
+                botCalculations.controller.Yaw = angle;
             }
         }
     }
@@ -180,12 +239,28 @@ namespace Bot
             {
                 botCalculations.controller.Handbrake = true;
             }
-        
-            // Fixups.
-            AirWallRecovery(gameState, botCalculations);
 
-            // Jump.
-            ContactBall(gameState, botCalculations);
+            bool shouldDodge = distanceToBall < 500 && Math.Abs(angleToBallTarget) < 0.2f;
+            if (shouldDodge || botCalculations.primaryMechanic != null) // fixup
+            {
+                if (botCalculations.primaryMechanic == null)
+                {
+                    botCalculations.primaryMechanic = new ForwardDodge();
+                }
+                bool hasWork = botCalculations.primaryMechanic.Update(ref botCalculations.controller);
+                if (!hasWork)
+                {
+                    botCalculations.primaryMechanic = null;
+                }
+            }
+            else
+            {
+                // Fixups.
+                AirWallRecovery(gameState, botCalculations);
+
+                // Jump.
+                ContactBall(gameState, botCalculations);
+            }
         }
     }
 
@@ -281,7 +356,7 @@ namespace Bot
     public class Bot : RLBotDotNet.Bot
     {
         Tactic currentTactic;
-        //Mechanic currentMechanic;
+        Mechanic currentMechanic;
 
         //SendQuickChatFromAgent()
 
@@ -320,7 +395,7 @@ namespace Bot
         {
             Vector3 meToBallDirection = Vector3.Normalize(gameState.ballPhysics.Location - gameState.myCar.player.Physics.Location);
             Vector3 meToOwnGoalDirection = Vector3.Normalize(gameState.fieldState.ownGoalLocation - gameState.myCar.player.Physics.Location);
-            if (Vector3.Dot(meToBallDirection, meToOwnGoalDirection) > .9f)
+            if (Vector3.Dot(meToBallDirection, meToOwnGoalDirection) > .95f)
             {
                 return new Defend();
             }
@@ -349,9 +424,16 @@ namespace Bot
             };
             botCalculations.predictedBallLocation = gameState.GetPredictionLocation();
 
+            botCalculations.primaryMechanic = currentMechanic;
+
             // Decide on a tactic and run it.
-            currentTactic = ChooseTactic(gameState, botCalculations);
+            if (currentMechanic == null)
+            {
+                currentTactic = ChooseTactic(gameState, botCalculations);
+            }
             currentTactic.DoWork(gameState, botCalculations);
+
+            currentMechanic = botCalculations.primaryMechanic;
 
             // Examples of rendering in the game
             Renderer.DrawString3D("Ball", Colors.Black, botCalculations.predictedBallLocation, 3, 3);
@@ -364,8 +446,24 @@ namespace Bot
                 Renderer.DrawString3D("Jump", Colors.Green, gameState.myCar.player.Physics.Location, 3, 3);
             }
 
-            Renderer.DrawLine3D(Colors.Red, gameState.myCar.player.Physics.Location, botCalculations.primaryTarget);
+            Color lineColor = Colors.Red;
 
+            switch(currentTactic.tacticType)
+            {
+                case TacticType.Attack:
+                    lineColor = Colors.Red;
+                    break;
+                case TacticType.Defend:
+                    lineColor = Colors.Purple;
+                    break;
+                case TacticType.Patience:
+                    lineColor = Colors.DarkGreen;
+                    break;
+            }
+
+            Renderer.DrawLine3D(lineColor, gameState.myCar.player.Physics.Location, botCalculations.primaryTarget);
+
+            Renderer.DrawString2D(currentTactic.tacticType.ToString(), Colors.WhiteSmoke, new Vector2(), 5, 5);
 
             return botCalculations.controller;
         }
@@ -392,31 +490,6 @@ namespace Bot
         //     }
         //     return fromFramework(prediction.Slices(0).Value.Physics.Value.Location.Value);
         // }
-
-        //private Controller getDodgeOutput(Controller controller, double steer)
-        //{
-        //    if (dodgeWatch.ElapsedMilliseconds <= 120)
-        //    {
-        //        controller.Jump = (dodgeWatch.ElapsedMilliseconds <= 80);
-        //        controller.Yaw = 0;
-        //        controller.Pitch = 0;
-        //    }
-        //    else if (dodgeWatch.ElapsedMilliseconds <= 250)
-        //    {
-        //        controller.Jump = true;
-        //        controller.Yaw = (float)-Math.Sin(steer);
-        //        controller.Pitch = (float)-Math.Cos(steer);
-        //    }
-        //    else if (dodgeWatch.ElapsedMilliseconds <= 1000)
-        //    {
-        //        controller.Jump = false;
-        //        controller.Yaw = 0;
-        //        controller.Pitch = 0;
-        //    }
-        //    if (dodgeWatch.ElapsedMilliseconds <= 800) controller.Boost = false;
-
-        //    return controller;
-        //}
 
 
         //private Vector3 getHitPoint(rlbot.flat.GameTickPacket gameTickPacket, rlbot.flat.BallPrediction prediction)

@@ -19,6 +19,14 @@ namespace Bot
             return (location1 - location2).Length();
         }
 
+        public static float DistanceBetween2D(Vector3 location1, Vector3 location2)
+        {
+            location1.Z = 0;
+            location2.Z = 0;
+            return (location1 - location2).Length();
+        }
+
+
         public static float AngleBetween(Vector3 referenceLocation, Orientation referenceOrientation, Vector3 targetLocation)
         {
             Vector3 relativelocation = Orientation.RelativeLocation(referenceLocation, targetLocation, referenceOrientation);
@@ -61,10 +69,5 @@ namespace Bot
             result.Y = Clamp(value.Y, -BackWall, BackWall);
             return result;
         }
-
-        //public double magnitude2D(Vector3 vector)
-        //{
-        //    return Math.Sqrt(Math.Pow((vector.X - vector.X), 2) + Math.Pow((vector.Y - vector.Y), 2));
-        //}
     }
 }
