@@ -62,9 +62,13 @@ namespace Bot
         public Vector3 GetPredictionLocation()
         {
             // Use prediction based on how far we are from the ball.
-            // TODO: reduce this by how far the opponent is from the ball.
+            // TODO: consider far the opponent is from the ball.
             float distanceToBall = Utils.DistanceBetween2D(myCar.player.Physics.Location, ballPhysics.Location);
-            int predictionSlice = (int)distanceToBall / 25 - 1;
+
+            float velocity = Math.Max(myCar.player.Physics.Velocity.Y, Utils.MaxSpeed);
+            float timeToBall = distanceToBall / velocity;
+
+            int predictionSlice = (int)(timeToBall * 60);
             predictionSlice = (int)Utils.Clamp(predictionSlice, 0, ballPrediction.Length - 1);
             Vector3 ballLocation = ballPrediction.Slices[predictionSlice].Physics.Location;
             return ballLocation;
@@ -83,31 +87,44 @@ namespace Bot
 
     public abstract class Mechanic
     {
-        public abstract bool Update(ref Controller controller);
+        public abstract bool Update(GameState gameState, float angleToTarget, ref Controller controller);
     }
 
     public class ForwardDodge : Mechanic
     {
         public Stopwatch timer = new Stopwatch();
+        private bool didPrint = false;
 
         public ForwardDodge()
         {
+            
             timer.Restart();
         }
 
-        public override bool Update(ref Controller controller)
+        public override bool Update(GameState gameState, float angleToTarget, ref Controller controller)
         {
             if (timer.ElapsedMilliseconds <= 120)
             {
+                // 1st jump and release;
                 controller.Jump = (timer.ElapsedMilliseconds <= 80);
                 controller.Yaw = 0;
                 controller.Pitch = 0;
             }
             else if (timer.ElapsedMilliseconds <= 250)
             {
+                // 2nd jump.
+                // Double the angle if we're moving fast.
+                float angleAdjust = Utils.InverseLerp(500, Utils.MaxSpeed, gameState.myCar.player.Physics.Velocity.Y);
+                float angle = angleToTarget + (angleToTarget * angleAdjust);
                 controller.Jump = true;
-                controller.Yaw = (float)-Math.Sin(controller.Steer);
-                controller.Pitch = (float)-Math.Cos(controller.Steer);
+                controller.Yaw = (float)Math.Sin(angleToTarget);
+                controller.Pitch = (float)-Math.Cos(angleToTarget);
+
+                if (!didPrint)
+                {
+                    Console.Out.WriteLine("Forward Dodge. Angle: {0}", angleToTarget * Utils.RadToDegrees);
+                    didPrint = true;
+                }
             }
             else if (timer.ElapsedMilliseconds <= 1000)
             {
@@ -152,8 +169,6 @@ namespace Bot
 
         public void AirWallRecovery(GameState gamestate, BotCalculations botCalculations)
         {
-            // TODO: Fix up yaw and pitch.
-            // get off the wall
             if (gamestate.myCar.player.Physics.Rotation.Roll > .5)
             {
                 botCalculations.controller.Steer = 1;
@@ -240,14 +255,15 @@ namespace Bot
                 botCalculations.controller.Handbrake = true;
             }
 
-            bool shouldDodge = distanceToBall < 500 && Math.Abs(angleToBallTarget) < 0.2f;
+            // TODO: Pass the direction to the ball instead of using steer.
+            bool shouldDodge = distanceToBall < 400 && ballLocation.Z < 200;// && Math.Abs(angleToBallTarget) < 0.5f;
             if (shouldDodge || botCalculations.primaryMechanic != null) // fixup
             {
                 if (botCalculations.primaryMechanic == null)
                 {
                     botCalculations.primaryMechanic = new ForwardDodge();
                 }
-                bool hasWork = botCalculations.primaryMechanic.Update(ref botCalculations.controller);
+                bool hasWork = botCalculations.primaryMechanic.Update(gameState, botCalculations.primaryAngle, ref botCalculations.controller);
                 if (!hasWork)
                 {
                     botCalculations.primaryMechanic = null;
@@ -272,7 +288,7 @@ namespace Bot
 
         public override void DoWork(GameState gameState, BotCalculations botCalculations)
         {
-            Vector3 safePosition = Utils.ProjectLocationTowardsTarget(gameState.fieldState.ownGoalLocation, gameState.fieldState.oppGoalLocation, 300);
+            Vector3 safePosition = Utils.ProjectLocationTowardsTarget(gameState.fieldState.ownGoalLocation, gameState.fieldState.oppGoalLocation, 150);
             float angleToSafePosition = Utils.AngleBetween(gameState.myCar.player.Physics.Location, gameState.myCar.player.Physics.Rotation, safePosition);
             botCalculations.primaryTarget = safePosition;
             botCalculations.primaryAngle = angleToSafePosition;
@@ -446,23 +462,24 @@ namespace Bot
                 Renderer.DrawString3D("Jump", Colors.Green, gameState.myCar.player.Physics.Location, 3, 3);
             }
 
-            Color lineColor = Colors.Red;
+            Color tacticColor = Colors.Red;
 
             switch(currentTactic.tacticType)
             {
                 case TacticType.Attack:
-                    lineColor = Colors.Red;
+                    tacticColor = Colors.Magenta;
                     break;
                 case TacticType.Defend:
-                    lineColor = Colors.Purple;
+                    tacticColor = Colors.Purple;
                     break;
                 case TacticType.Patience:
-                    lineColor = Colors.DarkGreen;
+                    tacticColor = Colors.DarkGreen;
                     break;
             }
 
-            Renderer.DrawLine3D(lineColor, gameState.myCar.player.Physics.Location, botCalculations.primaryTarget);
-
+            Renderer.DrawLine3D(tacticColor, gameState.myCar.player.Physics.Location, botCalculations.primaryTarget);
+            Renderer.DrawCenteredRectangle3D(tacticColor, botCalculations.primaryTarget, 50, 50, false);
+            Renderer.DrawCenteredRectangle3D(Colors.LimeGreen, botCalculations.predictedBallLocation, 20, 20, false);
             Renderer.DrawString2D(currentTactic.tacticType.ToString(), Colors.WhiteSmoke, new Vector2(), 5, 5);
 
             return botCalculations.controller;

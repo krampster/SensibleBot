@@ -13,6 +13,8 @@ namespace Bot
         public const float SideWall = 4096;
         public const float BackWall = 5120;
         public const float GoalPostOffset = 850;
+        public const float RadToDegrees = (float)180.0f / (float)Math.PI;
+        public const float MaxSpeed = 1410;
 
         public static float DistanceBetween(Vector3 location1, Vector3 location2)
         {
@@ -45,6 +47,12 @@ namespace Bot
         public static float Lerp(float firstFloat, float secondFloat, float by)
         {
             return firstFloat * (1 - by) + secondFloat * by;
+        }
+
+        public static float InverseLerp(float firstFloat, float secondFloat, float value)
+        {
+            value = Clamp(value, firstFloat, secondFloat);
+            return (value - firstFloat) / (secondFloat - firstFloat);
         }
 
         public static float Clamp(float value, float min, float max)
